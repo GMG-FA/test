@@ -1,11 +1,221 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>テストページ</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>今日は何の日？</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', 'Noto Sans JP', sans-serif; }
+
+        .day-cell { transition: all 0.2s ease-in-out; }
+        .day-cell:hover { transform: scale(1.05); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+
+        .has-event { position: relative; cursor: pointer; }
+        .has-event::after {
+            content: '';
+            position: absolute;
+            bottom: 6px; left: 50%;
+            transform: translateX(-50%);
+            width: 6px; height: 6px;
+            background-color: #3b82f6;
+            border-radius: 50%;
+        }
+
+        .today { background-color: #fca5a5; color: #b91c1c; font-weight: bold; }
+        .selected { background-color: #60a5fa; color: white; font-weight: bold; }
+    </style>
 </head>
-<body>
-    <h1>テスト</h1>
-    <p>テスト</p>
+<body class="bg-gray-100 text-gray-800 p-4 sm:p-6 md:p-8">
+
+<div class="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg p-6 md:p-8">
+    <h1 class="text-2xl sm:text-3xl font-bold text-center text-gray-900 mb-6">今日は何の日？</h1>
+
+    <!-- ローディング表示 -->
+    <div id="loading" class="text-center py-12 text-gray-500">
+        <p class="text-lg">データを読み込んでいます...</p>
+    </div>
+
+    <!-- エラー表示 -->
+    <div id="error" class="hidden text-center py-12 text-red-500">
+        <p class="text-lg font-semibold">データの読み込みに失敗しました</p>
+        <p class="text-sm mt-2" id="error-message"></p>
+    </div>
+
+    <!-- メインコンテンツ（データ読み込み後に表示） -->
+    <div id="main-content" class="hidden">
+        <!-- カレンダー -->
+        <div class="mb-8">
+            <div class="flex items-center justify-between mb-4">
+                <button id="prev-month" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg shadow transition">&lt; 前の月</button>
+                <h2 id="calendar-title" class="text-xl sm:text-2xl font-semibold"></h2>
+                <button id="next-month" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg shadow transition">次の月 &gt;</button>
+            </div>
+            <div class="grid grid-cols-7 text-center font-medium text-gray-500 mb-2">
+                <div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div>
+            </div>
+            <div id="calendar-body" class="grid gap-1 sm:gap-2" style="grid-template-columns: repeat(7, minmax(0, 1fr))"></div>
+        </div>
+
+        <!-- イベント表示 -->
+        <div id="event-display" class="bg-blue-50 border-l-4 border-blue-500 p-6 rounded-lg shadow-inner min-h-[150px]">
+            <h3 id="event-date" class="text-lg font-bold text-blue-800 mb-4">日付を選択してください</h3>
+            <div id="event-list"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ============================================================
+// ★ここにGASのデプロイURLを貼り付けてください★
+// ============================================================
+const GAS_URL = 'YOUR_GAS_DEPLOY_URL_HERE';
+// ============================================================
+
+const $ = id => document.getElementById(id);
+
+const state = {
+    events: {},
+    currentDate: new Date(),
+    selectedCell: null,
+};
+
+// --- データ取得 ---
+async function fetchEvents() {
+    const res = await fetch(GAS_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.status !== 'ok') throw new Error(json.message || '不明なエラー');
+    return json.data;
+}
+
+// --- カレンダー描画 ---
+function renderCalendar() {
+    const body = $('calendar-body');
+    body.innerHTML = '';
+
+    const year  = state.currentDate.getFullYear();
+    const month = state.currentDate.getMonth();
+    const today = new Date();
+
+    $('calendar-title').textContent = `${year}年 ${month + 1}月`;
+
+    const firstDayOfWeek = new Date(year, month, 1).getDay();
+    const lastDate       = new Date(year, month + 1, 0).getDate();
+
+    // 空白セル
+    for (let i = 0; i < firstDayOfWeek; i++) {
+        const blank = document.createElement('div');
+        blank.className = 'day-cell p-2 sm:p-3 text-center border rounded-lg';
+        body.appendChild(blank);
+    }
+
+    // 日付セル
+    for (let d = 1; d <= lastDate; d++) {
+        const cell = document.createElement('div');
+        cell.className = 'day-cell p-2 sm:p-3 text-center border rounded-lg';
+        cell.textContent = d;
+
+        const isToday = year === today.getFullYear() && month === today.getMonth() && d === today.getDate();
+        if (isToday) cell.classList.add('today');
+
+        const key = `${month + 1}-${d}`;
+        if (state.events[key]?.length > 0) cell.classList.add('has-event');
+
+        cell.addEventListener('click', () => onDayClick(cell, month + 1, d));
+        body.appendChild(cell);
+    }
+}
+
+// --- 日付クリック ---
+function onDayClick(cell, month, day) {
+    if (state.selectedCell) state.selectedCell.classList.remove('selected');
+    cell.classList.add('selected');
+    state.selectedCell = cell;
+    displayEvent(month, day);
+}
+
+// --- イベント表示 ---
+function displayEvent(month, day) {
+    $('event-date').textContent = `${month}月 ${day}日`;
+    const list = $('event-list');
+    list.innerHTML = '';
+
+    const dailyEvents = state.events[`${month}-${day}`];
+    if (!dailyEvents || dailyEvents.length === 0) {
+        list.innerHTML = `
+            <p class="text-xl font-semibold text-blue-900 mb-3">この日のイベントはありません</p>
+            <p class="text-gray-700">新しいイベントを登録してみましょう。</p>`;
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    dailyEvents.forEach((event, i) => {
+        const div = document.createElement('div');
+        div.className = 'mb-4';
+        const title = document.createElement('div');
+        title.className = 'text-xl font-semibold text-blue-900 mb-1';
+        title.textContent = `【${event.name}】`;
+        const desc = document.createElement('p');
+        desc.className = 'text-gray-700';
+        desc.textContent = event.description;
+        div.append(title, desc);
+        fragment.appendChild(div);
+
+        if (i < dailyEvents.length - 1) {
+            const hr = document.createElement('hr');
+            hr.className = 'my-4 border-blue-200';
+            fragment.appendChild(hr);
+        }
+    });
+    list.appendChild(fragment);
+}
+
+// --- 初期化 ---
+async function init() {
+    try {
+        state.events = await fetchEvents();
+    } catch (err) {
+        $('loading').classList.add('hidden');
+        $('error').classList.remove('hidden');
+        $('error-message').textContent = err.message;
+        return;
+    }
+
+    $('loading').classList.add('hidden');
+    $('main-content').classList.remove('hidden');
+
+    renderCalendar();
+
+    // 今日のイベントを初期表示
+    const today = new Date();
+    const m = today.getMonth() + 1;
+    const d = today.getDate();
+    displayEvent(m, d);
+
+    // 今日のセルを選択状態に
+    const todayCell = Array.from($('calendar-body').children)
+        .find(c => Number(c.textContent) === d && c.classList.contains('today'));
+    if (todayCell) {
+        todayCell.classList.add('selected');
+        state.selectedCell = todayCell;
+    }
+}
+
+// --- ボタン ---
+$('prev-month').addEventListener('click', () => {
+    state.currentDate.setMonth(state.currentDate.getMonth() - 1);
+    state.selectedCell = null;
+    renderCalendar();
+});
+$('next-month').addEventListener('click', () => {
+    state.currentDate.setMonth(state.currentDate.getMonth() + 1);
+    state.selectedCell = null;
+    renderCalendar();
+});
+
+init();
+</script>
 </body>
 </html>
